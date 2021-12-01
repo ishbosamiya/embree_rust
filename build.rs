@@ -111,7 +111,17 @@ fn main() {
         get_embree_lib("3.13.2");
     }
 
-    println!("cargo:rustc-link-search=deps/embree3/lib/");
+    println!("cargo:rustc-link-lib=embree3");
+    println!("cargo:rustc-link-lib=tbb");
+    println!("cargo:rustc-link-search=deps/embree3/lib");
+    // TODO: need to test for cross compilation, it may work only on
+    // linux, see
+    // https://doc.rust-lang.org/cargo/reference/environment-variables.html#dynamic-library-paths
+    // for more info
+    //
+    // TODO: need to also make sure that it does not overwrite the
+    // existing environment variable
+    println!("cargo:rustc-env=LD_LIBRARY_PATH=deps/embree3/lib");
 
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
