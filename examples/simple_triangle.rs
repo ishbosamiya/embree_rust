@@ -105,7 +105,7 @@ fn trace_image(scene: sys::RTCScene, width: usize, height: usize) -> image::Dyna
     let camera_origin = (0.0, 0.0, -3.0);
     let camera_focal_length = 6.0;
     let camera_horizontal = 5.0;
-    let camera_vertical = 5.0;
+    let camera_vertical = camera_horizontal * (height as f32 / width as f32);
 
     image::DynamicImage::ImageRgb8(image::ImageBuffer::from_fn(
         width.try_into().unwrap(),
@@ -142,9 +142,9 @@ fn trace_image(scene: sys::RTCScene, width: usize, height: usize) -> image::Dyna
             };
 
             let rgb = [
-                (rgb[0] * 255.0) as u8,
-                (rgb[1] * 255.0) as u8,
-                (rgb[2] * 255.0) as u8,
+                (rgb[0].clamp(0.0, 1.0) * 255.0) as u8,
+                (rgb[1].clamp(0.0, 1.0) * 255.0) as u8,
+                (rgb[2].clamp(0.0, 1.0) * 255.0) as u8,
             ];
             *image::Rgb::from_slice(&rgb)
         },
