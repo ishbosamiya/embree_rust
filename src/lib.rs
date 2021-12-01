@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 pub mod sys;
 
+pub const INVALID_GEOMETRY_ID: u32 = sys::RTC_INVALID_GEOMETRY_ID;
+
 pub struct Device {
     device: sys::RTCDevice,
     _marker: std::marker::PhantomData<sys::RTCDevice>,
@@ -30,7 +32,7 @@ impl Device {
     /// If not handled correctly, can lead to memory leaks or other
     /// memory problems. It is always better to use the Rust API
     /// instead of trying to get access to the FFI parts directly.
-    pub unsafe fn get_device(&mut self) -> sys::RTCDevice {
+    pub unsafe fn get_device(&self) -> sys::RTCDevice {
         self.device
     }
 }
@@ -54,11 +56,17 @@ pub struct Scene<'a, CommitStatus = SceneUncommited> {
 
 impl<CommitStatus> Drop for Scene<'_, CommitStatus> {
     fn drop(&mut self) {
-        unsafe {
-            sys::rtcReleaseScene(self.scene);
+        // in some cases, like transforming the commit status of the
+        // scene can lead to Scene::drop() to be called. Here it is
+        // not actually dropping the scene but only transforming it
+        // for type safety, so in instances like these, self.scene can
+        // be set to std::ptr::null_mut() to prevent drop.
+        if !self.scene.is_null() {
+            unsafe {
+                sys::rtcReleaseScene(self.scene);
+            }
+            self.scene = std::ptr::null_mut();
         }
-
-        self.scene = std::ptr::null_mut();
     }
 }
 
@@ -68,13 +76,13 @@ impl<'a, CommitStatus> Scene<'a, CommitStatus> {
     /// If not handled correctly, can lead to memory leaks or other
     /// memory problems. It is always better to use the Rust API
     /// instead of trying to get access to the FFI parts directly.
-    pub unsafe fn get_scene(&mut self) -> sys::RTCScene {
+    pub unsafe fn get_scene(&self) -> sys::RTCScene {
         self.scene
     }
 }
 
 impl<'a> Scene<'a, SceneUncommited> {
-    pub fn new(device: &'a mut Device) -> Self {
+    pub fn new(device: &'a Device) -> Self {
         Self {
             scene: unsafe { sys::rtcNewScene(device.get_device()) },
             _marker: PhantomData,
@@ -82,7 +90,7 @@ impl<'a> Scene<'a, SceneUncommited> {
         }
     }
 
-    pub fn attach_geometry(&mut self, geometry: &mut Geometry) -> GeometryID {
+    pub fn attach_geometry(&mut self, geometry: &Geometry) -> GeometryID {
         GeometryID(unsafe { sys::rtcAttachGeometry(self.get_scene(), geometry.get_geometry()) })
     }
 
@@ -91,11 +99,16 @@ impl<'a> Scene<'a, SceneUncommited> {
             sys::rtcCommitScene(self.get_scene());
         }
 
-        Scene {
+        let res = Scene {
             scene: self.scene,
             _marker: self._marker,
             commit_status: PhantomData,
-        }
+        };
+
+        // needed so that scene is not released
+        self.scene = std::ptr::null_mut();
+
+        res
     }
 }
 
@@ -235,7 +248,7 @@ impl Geometry<'_> {
     /// If not handled correctly, can lead to memory leaks or other
     /// memory problems. It is always better to use the Rust API
     /// instead of trying to get access to the FFI parts directly.
-    pub unsafe fn get_geometry(&mut self) -> sys::RTCGeometry {
+    pub unsafe fn get_geometry(&self) -> sys::RTCGeometry {
         match self {
             Geometry::Triangle(geometry) => geometry.get_geometry(),
         }
@@ -258,7 +271,7 @@ impl Drop for GeometryTriangle<'_> {
 }
 
 impl<'a> GeometryTriangle<'a> {
-    pub fn new(device: &'a mut Device, verts: &[Vert], indices: &[Triangle]) -> Self {
+    pub fn new(device: &'a Device, verts: &[Vert], indices: &[Triangle]) -> Self {
         let geometry = unsafe {
             sys::rtcNewGeometry(
                 device.get_device(),
@@ -314,7 +327,7 @@ impl<'a> GeometryTriangle<'a> {
     /// If not handled correctly, can lead to memory leaks or other
     /// memory problems. It is always better to use the Rust API
     /// instead of trying to get access to the FFI parts directly.
-    pub unsafe fn get_geometry(&mut self) -> sys::RTCGeometry {
+    pub unsafe fn get_geometry(&self) -> sys::RTCGeometry {
         self.geometry
     }
 }
