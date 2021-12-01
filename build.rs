@@ -121,6 +121,12 @@ fn main() {
     //
     // TODO: need to also make sure that it does not overwrite the
     // existing environment variable
+    //
+    // TODO: if crate is built and then run using
+    // `./target/debug/xyz`, it will fail because the environment
+    // variable is not set. There does not seem to be a good way to
+    // handle this, see https://github.com/rust-lang/cargo/issues/4895
+    // for more details.
     println!("cargo:rustc-env=LD_LIBRARY_PATH=deps/embree3/lib");
 
     let bindings = bindgen::Builder::default()
