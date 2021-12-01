@@ -118,6 +118,8 @@ fn main() {
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .allowlist_type("RTC.*")
+        .allowlist_function("rtc.*")
         .generate()
         .expect("Unable to generate bindings");
 
