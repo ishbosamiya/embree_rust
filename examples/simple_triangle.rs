@@ -1,6 +1,6 @@
 use std::os::raw::c_uint;
 
-use embree_rust::sys;
+use embree_rust::{sys, Vec3};
 use image::Pixel;
 
 fn generate_cube_verts_and_indices() -> (Vec<(f32, f32, f32)>, Vec<c_uint>) {
@@ -122,14 +122,10 @@ fn trace_image(scene: sys::RTCScene, width: usize, height: usize) -> image::Dyna
 
             let ray_hit = trace_ray(
                 sys::RTCRay::new(
-                    camera_origin.0,
-                    camera_origin.1,
-                    camera_origin.2,
+                    Vec3::new(camera_origin.0, camera_origin.1, camera_origin.2),
                     0.001,
                     1000.0,
-                    ray_direction.0,
-                    ray_direction.1,
-                    ray_direction.2,
+                    Vec3::new(ray_direction.0, ray_direction.1, ray_direction.2),
                     0.0,
                 ),
                 scene,
