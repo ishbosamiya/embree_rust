@@ -1,6 +1,6 @@
 use embree_rust::{
-    Device, Geometry, GeometryTriangle, Ray, Scene, SceneCommited, Triangle, Vec3, Vert,
-    INVALID_GEOMETRY_ID,
+    Device, Geometry, GeometrySphere, GeometryTriangle, Ray, Scene, SceneCommited, Sphere,
+    Triangle, Vec3, Vert, INVALID_GEOMETRY_ID,
 };
 use image::Pixel;
 
@@ -65,8 +65,9 @@ fn trace_image(
                 0.0,
             ));
 
-            let rgb = if ray_hit.hit.geomID != INVALID_GEOMETRY_ID {
-                [ray_hit.hit.u, ray_hit.hit.v, 0.0]
+            let rgb: [f32; 3] = if ray_hit.hit.geomID != INVALID_GEOMETRY_ID {
+                // [ray_hit.hit.u, ray_hit.hit.v, 0.0]
+                [1.0, 0.0, 0.0]
             } else {
                 [0.0, 0.0, 0.0]
             };
@@ -90,7 +91,18 @@ fn main() {
     let cube_geometry =
         Geometry::Triangle(GeometryTriangle::new(&device, &cube_verts, &cube_triangles));
 
+    let sphere_geometry = Geometry::Sphere(GeometrySphere::new(
+        &device,
+        &[
+            Sphere::new(Vec3::new(2.1, 2.1, 0.0), 0.7),
+            Sphere::new(Vec3::new(2.1, -2.1, 0.0), 0.7),
+            Sphere::new(Vec3::new(-2.1, 2.1, 0.0), 0.7),
+            Sphere::new(Vec3::new(-2.1, -2.1, 0.0), 0.7),
+        ],
+    ));
+
     scene.attach_geometry(&cube_geometry);
+    scene.attach_geometry(&sphere_geometry);
 
     let scene = scene.commit();
 

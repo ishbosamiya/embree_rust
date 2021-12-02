@@ -231,9 +231,10 @@ impl Triangle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GeometryID(u32);
 
-// TODO: make it support non triangle geometry as well
+// TODO: add support for other geometries
 pub enum Geometry<'a> {
     Triangle(GeometryTriangle<'a>),
+    Sphere(GeometrySphere<'a>),
 }
 
 impl Geometry<'_> {
@@ -245,6 +246,7 @@ impl Geometry<'_> {
     pub unsafe fn get_geometry(&self) -> sys::RTCGeometry {
         match self {
             Geometry::Triangle(geometry) => geometry.get_geometry(),
+            Geometry::Sphere(geometry) => geometry.get_geometry(),
         }
     }
 }
@@ -326,11 +328,89 @@ impl<'a> GeometryTriangle<'a> {
     }
 }
 
+/// Sphere, stores position and radius
+///
+/// Do not add or remove elements. Embree requires only position and
+/// radius.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Sphere {
+    pos: Vec3,
+    radius: f32,
+}
+
+impl Sphere {
+    pub fn new(pos: Vec3, radius: f32) -> Self {
+        Self { pos, radius }
+    }
+}
+
+pub struct GeometrySphere<'a> {
+    geometry: sys::RTCGeometry,
+    _marker: std::marker::PhantomData<&'a Device>,
+}
+
+impl Drop for GeometrySphere<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            sys::rtcReleaseGeometry(self.geometry);
+        }
+
+        self.geometry = std::ptr::null_mut();
+    }
+}
+
+impl<'a> GeometrySphere<'a> {
+    pub fn new(device: &'a Device, spheres: &[Sphere]) -> Self {
+        let geometry = unsafe {
+            sys::rtcNewGeometry(
+                device.get_device(),
+                sys::RTCGeometryType_RTC_GEOMETRY_TYPE_SPHERE_POINT,
+            )
+        };
+
+        let spheres_buffer: &mut [Sphere] = unsafe {
+            std::slice::from_raw_parts_mut(
+                sys::rtcSetNewGeometryBuffer(
+                    geometry,
+                    sys::RTCBufferType_RTC_BUFFER_TYPE_VERTEX,
+                    0,
+                    sys::RTCFormat_RTC_FORMAT_FLOAT4,
+                    std::mem::size_of::<Sphere>().try_into().unwrap(),
+                    spheres.len().try_into().unwrap(),
+                ) as *mut Sphere,
+                spheres.len(),
+            )
+        };
+
+        spheres_buffer.copy_from_slice(spheres);
+
+        unsafe {
+            sys::rtcSetGeometryBuildQuality(geometry, sys::RTCBuildQuality_RTC_BUILD_QUALITY_HIGH);
+            sys::rtcCommitGeometry(geometry);
+        }
+
+        Self {
+            geometry,
+            _marker: PhantomData,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// If not handled correctly, can lead to memory leaks or other
+    /// memory problems. It is always better to use the Rust API
+    /// instead of trying to get access to the FFI parts directly.
+    pub unsafe fn get_geometry(&self) -> sys::RTCGeometry {
+        self.geometry
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::raw::c_uint;
 
-    use crate::{Triangle, Vert};
+    use crate::{Sphere, Triangle, Vert};
 
     /// [`c_uint`] should never be smaller or larger than [`u32`]
     #[test]
@@ -348,5 +428,11 @@ mod tests {
     #[test]
     fn triangle_size_constraint() {
         assert_eq!(std::mem::size_of::<Triangle>(), 4 + 4 + 4);
+    }
+
+    /// [`Sphere`] should never be smaller or larger
+    #[test]
+    fn sphere_size_constraint() {
+        assert_eq!(std::mem::size_of::<Sphere>(), 4 + 4 + 4 + 4);
     }
 }
