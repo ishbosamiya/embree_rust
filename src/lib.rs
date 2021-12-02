@@ -19,6 +19,9 @@ impl Drop for Device {
     }
 }
 
+unsafe impl Sync for Device {}
+unsafe impl Send for Device {}
+
 impl Device {
     pub fn new() -> Self {
         Self {
@@ -57,6 +60,9 @@ pub struct Scene<'a, CommitStatus = SceneUncommitted> {
     _marker: std::marker::PhantomData<&'a Device>,
     commit_status: std::marker::PhantomData<CommitStatus>,
 }
+
+unsafe impl<CommitStatus> Sync for Scene<'_, CommitStatus> {}
+unsafe impl<CommitStatus> Send for Scene<'_, CommitStatus> {}
 
 impl<CommitStatus> Drop for Scene<'_, CommitStatus> {
     fn drop(&mut self) {
