@@ -45,12 +45,12 @@ impl Default for Device {
 }
 
 #[derive(Debug)]
-pub struct SceneUncommited;
+pub struct SceneUncommitted;
 #[derive(Debug)]
-pub struct SceneCommited;
+pub struct SceneCommitted;
 
 #[derive(Debug)]
-pub struct Scene<'a, CommitStatus = SceneUncommited> {
+pub struct Scene<'a, CommitStatus = SceneUncommitted> {
     scene: sys::RTCScene,
     /// Marker to make sure Scene lasts for as long as the [`Device`]
     /// used to create it
@@ -78,7 +78,7 @@ impl<'a, CommitStatus> Scene<'a, CommitStatus> {
     }
 }
 
-impl<'a> Scene<'a, SceneUncommited> {
+impl<'a> Scene<'a, SceneUncommitted> {
     pub fn new(device: &'a Device) -> Self {
         Self {
             scene: unsafe { sys::rtcNewScene(device.get_device()) },
@@ -91,7 +91,7 @@ impl<'a> Scene<'a, SceneUncommited> {
         GeometryID(unsafe { sys::rtcAttachGeometry(self.get_scene(), geometry.get_geometry()) })
     }
 
-    pub fn commit(self) -> Scene<'a, SceneCommited> {
+    pub fn commit(self) -> Scene<'a, SceneCommitted> {
         unsafe {
             sys::rtcCommitScene(self.get_scene());
         }
@@ -110,7 +110,7 @@ impl<'a> Scene<'a, SceneUncommited> {
     }
 }
 
-impl<'a> Scene<'a, SceneCommited> {
+impl<'a> Scene<'a, SceneCommitted> {
     /// Intersect ray with the scene.
     ///
     /// TODO: add support for the other intersection types along with

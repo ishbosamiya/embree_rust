@@ -1,5 +1,5 @@
 use embree_rust::{
-    Device, Geometry, GeometrySphere, GeometryTriangle, Ray, Scene, SceneCommited, Sphere,
+    Device, Geometry, GeometrySphere, GeometryTriangle, Ray, Scene, SceneCommitted, Sphere,
     Triangle, Vec3, Vert, INVALID_GEOMETRY_ID,
 };
 use image::Pixel;
@@ -35,7 +35,7 @@ fn generate_cube() -> (Vec<Vert>, Vec<Triangle>) {
 }
 
 fn trace_image(
-    scene: &Scene<'_, SceneCommited>,
+    scene: &Scene<'_, SceneCommitted>,
     width: usize,
     height: usize,
 ) -> image::DynamicImage {
