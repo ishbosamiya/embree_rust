@@ -56,17 +56,10 @@ pub struct Scene<'a, CommitStatus = SceneUncommited> {
 
 impl<CommitStatus> Drop for Scene<'_, CommitStatus> {
     fn drop(&mut self) {
-        // in some cases, like transforming the commit status of the
-        // scene can lead to Scene::drop() to be called. Here it is
-        // not actually dropping the scene but only transforming it
-        // for type safety, so in instances like these, self.scene can
-        // be set to std::ptr::null_mut() to prevent drop.
-        if !self.scene.is_null() {
-            unsafe {
-                sys::rtcReleaseScene(self.scene);
-            }
-            self.scene = std::ptr::null_mut();
+        unsafe {
+            sys::rtcReleaseScene(self.scene);
         }
+        self.scene = std::ptr::null_mut();
     }
 }
 
@@ -94,21 +87,22 @@ impl<'a> Scene<'a, SceneUncommited> {
         GeometryID(unsafe { sys::rtcAttachGeometry(self.get_scene(), geometry.get_geometry()) })
     }
 
-    pub fn commit(mut self) -> Scene<'a, SceneCommited> {
+    pub fn commit(self) -> Scene<'a, SceneCommited> {
         unsafe {
             sys::rtcCommitScene(self.get_scene());
         }
 
-        let res = Scene {
+        // retain the scene so it is not dropped at the end of this
+        // function
+        unsafe {
+            sys::rtcRetainScene(self.get_scene());
+        }
+
+        Scene {
             scene: self.scene,
             _marker: self._marker,
             commit_status: PhantomData,
-        };
-
-        // needed so that scene is not released
-        self.scene = std::ptr::null_mut();
-
-        res
+        }
     }
 }
 
