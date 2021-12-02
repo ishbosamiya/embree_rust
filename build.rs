@@ -1,118 +1,118 @@
 extern crate bindgen;
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn pre_compiled_lib_exists() -> bool {
     let embree_loc = PathBuf::from("./deps/embree3");
     embree_loc.exists()
 }
 
-fn get_target_os() -> &'static str {
-    #[cfg(target_os = "linux")]
-    {
-        "linux"
-    }
-    #[cfg(target_os = "macos")]
-    {
-        "macosx"
-    }
-    #[cfg(target_os = "windows")]
-    {
-        "windows"
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        panic!("Precompiled Embree available only for linux, macos and windows")
-    }
+/// [`source_dir`] is embree source code path
+///
+/// [`build_dir`] is path to which embree is compiled, generally
+/// `source_dir/build`
+///
+/// [`to_dir`] is the path to which embree is installed
+fn compile_embree(
+    source_dir: impl AsRef<Path>,
+    build_dir: impl AsRef<Path>,
+    to_dir: impl AsRef<Path>,
+) {
+    std::process::Command::new("cmake")
+        .current_dir(&build_dir)
+        .arg("CMAKE_BUILD_TYPE=Release")
+        .arg("-DEMBREE_ISPC_SUPPORT=false")
+        .arg("-DEMBREE_TUTORIALS=false")
+        .arg("-DEMBREE_STATIC_LIB=true")
+        .arg(source_dir.as_ref())
+        .output()
+        .expect("cmake may not be available on system");
+
+    // TODO: user customizable number of processes, embree is
+    // expensive to compile, completely utilizes the CPU, RAM and SWAP
+    // thus bringing the system to complete halt (at least on a XPS 15
+    // 9570 with i7-8750H and 16GB RAM)
+    std::process::Command::new("make")
+        .current_dir(&build_dir)
+        .arg("-j")
+        .arg("6")
+        .output()
+        .expect("make may not be available on system");
+
+    std::process::Command::new("cmake")
+        .current_dir(&build_dir)
+        .arg("--install")
+        .arg(".")
+        .arg("--prefix")
+        .arg(to_dir.as_ref())
+        .output()
+        .expect("failed to install the library");
 }
 
-fn get_embree_precompiled_url(version: &str, target_os: &str) -> String {
-    if target_os == "linux" {
-        format!("https://github.com/embree/embree/releases/download/v{version}/embree-{version}.x86_64.{target_os}.tar.gz", version = version, target_os = target_os)
-    } else if target_os == "macosx" {
-        format!("https://github.com/embree/embree/releases/download/v{version}/embree-{version}.x86_64.{target_os}.zip", version = version, target_os = target_os)
-    } else if target_os == "windows" {
-        format!("https://github.com/embree/embree/releases/download/v{version}/embree-{version}.x64.vc14.{target_os}.zip", version = version, target_os = target_os)
-    } else {
-        unreachable!("unsupported OS")
-    }
-}
+fn generate_embree_lib() {
+    let root_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .canonicalize()
+        .unwrap();
 
-fn get_embree_lib(version: &str) {
-    let temp_dir_path = PathBuf::from("./deps/temp");
+    let embree_source_dir = {
+        let mut embree_source_dir = root_dir.clone();
+        embree_source_dir.push("extern/embree");
+        embree_source_dir.canonicalize().unwrap()
+    };
 
-    std::fs::create_dir_all(&temp_dir_path).unwrap_or(());
+    let embree_build_dir = {
+        let mut embree_build_dir = embree_source_dir.clone();
+        embree_build_dir.push("build");
 
-    let target_os = get_target_os();
-
-    // get the compiled library from github if it does not exist
-    // already
-    if temp_dir_path.read_dir().unwrap().count() == 0 {
-        let url = get_embree_precompiled_url(version, target_os);
-        println!(
-            "precompiled zipped library not found, downloading from {}",
-            url
-        );
-        std::process::Command::new("wget")
-            .current_dir(&temp_dir_path)
-            .arg(url)
-            .output()
-            .expect("enable to spawn wget");
-    }
-
-    assert_eq!(temp_dir_path.read_dir().unwrap().count(), 1);
-
-    // extract the downloaded file
-    temp_dir_path.read_dir().unwrap().for_each(|zipped_file| {
-        let path = zipped_file.unwrap().path();
-        if path.extension().unwrap() == "gz" {
-            println!("trying to extract .tar.gz file");
-        } else if path.extension().unwrap() == "zip" {
-            println!("trying to extract .zip file");
-        } else {
-            unreachable!("the downloaded file should be .tar.gz or .zip")
+        if !embree_build_dir.exists() {
+            std::fs::create_dir_all(&embree_build_dir)
+                .expect("could not create build dir for Embree");
         }
-        std::process::Command::new("tar")
-            .arg("-xf")
-            .arg(path.to_str().unwrap())
-            .arg("--directory")
-            .arg("./deps")
-            .output()
-            .expect("enable to spawn tar");
-    });
 
-    let deps_path = temp_dir_path.parent().unwrap();
+        embree_build_dir.canonicalize().unwrap()
+    };
 
-    assert_eq!(deps_path.read_dir().unwrap().count(), 2);
+    let embree_deps_dir = {
+        let mut embree_deps_dir = root_dir;
+        embree_deps_dir.push("deps/embree3");
 
-    // rename the extracted directory to embree3
-    deps_path
-        .read_dir()
-        .unwrap()
-        .filter(|path| path.as_ref().unwrap().file_name() != "temp")
-        .for_each(|path| {
-            let path = path.unwrap().path();
-            let mut embree3_path = deps_path.to_path_buf();
-            embree3_path.push("embree3");
-            std::fs::rename(path, embree3_path).unwrap();
-        });
+        if !embree_deps_dir.exists() {
+            std::fs::create_dir_all(&embree_deps_dir)
+                .expect("could not create deps dir for Embree");
+        }
 
-    // delete the temp directory
-    std::fs::remove_dir_all(temp_dir_path).unwrap();
+        embree_deps_dir.canonicalize().unwrap()
+    };
+
+    compile_embree(&embree_source_dir, &embree_build_dir, &embree_deps_dir);
+
+    std::fs::remove_dir_all(embree_build_dir).unwrap();
 }
 
 fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=deps/embree3/");
 
     if pre_compiled_lib_exists() {
         println!("pre compiled embree already exists at deps/embree3");
     } else {
-        get_embree_lib("3.13.2");
+        generate_embree_lib();
     }
 
-    println!("cargo:rustc-link-lib=embree3");
-    println!("cargo:rustc-link-lib=tbb");
+    println!("cargo:rustc-link-lib=dylib=stdc++");
+    println!("cargo:rustc-link-lib=static=embree3");
+    println!("cargo:rustc-link-lib=static=embree_sse42");
+    println!("cargo:rustc-link-lib=static=embree_avx");
+    println!("cargo:rustc-link-lib=static=embree_avx2");
+    println!("cargo:rustc-link-lib=static=embree_avx512");
+    println!("cargo:rustc-link-lib=static=lexers");
+    println!("cargo:rustc-link-lib=static=math");
+    println!("cargo:rustc-link-lib=static=simd");
+    println!("cargo:rustc-link-lib=static=sys");
+    println!("cargo:rustc-link-lib=static=tasking");
+    println!("cargo:rustc-link-lib=dylib=tbb");
+
     let current_dir = std::path::PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let embree_lib_path = {
         let mut embree_lib_path = current_dir;
@@ -121,23 +121,6 @@ fn main() {
     };
     println!(
         "cargo:rustc-link-search={}",
-        embree_lib_path.canonicalize().unwrap().to_str().unwrap()
-    );
-    // TODO: need to test for cross compilation, it may work only on
-    // linux, see
-    // https://doc.rust-lang.org/cargo/reference/environment-variables.html#dynamic-library-paths
-    // for more info
-    //
-    // TODO: need to also make sure that it does not overwrite the
-    // existing environment variable
-    //
-    // TODO: if crate is built and then run using
-    // `./target/debug/xyz`, it will fail because the environment
-    // variable is not set. There does not seem to be a good way to
-    // handle this, see https://github.com/rust-lang/cargo/issues/4895
-    // for more details.
-    println!(
-        "cargo:rustc-env=LD_LIBRARY_PATH={}",
         embree_lib_path.canonicalize().unwrap().to_str().unwrap()
     );
 
