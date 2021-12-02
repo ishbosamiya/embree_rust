@@ -4,6 +4,7 @@ pub mod sys;
 
 pub const INVALID_GEOMETRY_ID: u32 = sys::RTC_INVALID_GEOMETRY_ID;
 
+#[derive(Debug)]
 pub struct Device {
     device: sys::RTCDevice,
     _marker: std::marker::PhantomData<sys::RTCDevice>,
@@ -43,9 +44,12 @@ impl Default for Device {
     }
 }
 
+#[derive(Debug)]
 pub struct SceneUncommited;
+#[derive(Debug)]
 pub struct SceneCommited;
 
+#[derive(Debug)]
 pub struct Scene<'a, CommitStatus = SceneUncommited> {
     scene: sys::RTCScene,
     /// Marker to make sure Scene lasts for as long as the [`Device`]
@@ -232,6 +236,7 @@ impl Triangle {
 pub struct GeometryID(u32);
 
 // TODO: add support for other geometries
+#[derive(Debug)]
 pub enum Geometry<'a> {
     Triangle(GeometryTriangle<'a>),
     Sphere(GeometrySphere<'a>),
@@ -251,6 +256,7 @@ impl Geometry<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct GeometryTriangle<'a> {
     geometry: sys::RTCGeometry,
     _marker: std::marker::PhantomData<&'a Device>,
@@ -345,6 +351,7 @@ impl Sphere {
     }
 }
 
+#[derive(Debug)]
 pub struct GeometrySphere<'a> {
     geometry: sys::RTCGeometry,
     _marker: std::marker::PhantomData<&'a Device>,
