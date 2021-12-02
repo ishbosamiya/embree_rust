@@ -136,6 +136,7 @@ fn main() {
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .allowlist_type("RTC.*")
         .allowlist_function("rtc.*")
+        .no_copy("RTC.*")
         .generate()
         .expect("Unable to generate bindings");
 
