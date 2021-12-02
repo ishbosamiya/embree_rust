@@ -92,7 +92,10 @@ fn generate_embree_lib() {
 
 fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
+    // unlikely but incase
     println!("cargo:rerun-if-changed=deps/embree3/");
+    // rerun if embree verions is updated in the gitmodules
+    println!("cargo:rerun-if-changed=extern/embree/");
 
     if pre_compiled_lib_exists() {
         println!("pre compiled embree already exists at deps/embree3");
