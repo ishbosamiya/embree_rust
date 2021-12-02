@@ -1,0 +1,3 @@
+[submodule "extern/embree"]
+	path = extern/embree
+	url = git@github.com:embree/embree.git
