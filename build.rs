@@ -113,7 +113,16 @@ fn main() {
 
     println!("cargo:rustc-link-lib=embree3");
     println!("cargo:rustc-link-lib=tbb");
-    println!("cargo:rustc-link-search=deps/embree3/lib");
+    let current_dir = std::path::PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let embree_lib_path = {
+        let mut embree_lib_path = current_dir;
+        embree_lib_path.push("deps/embree3/lib");
+        embree_lib_path
+    };
+    println!(
+        "cargo:rustc-link-search={}",
+        embree_lib_path.canonicalize().unwrap().to_str().unwrap()
+    );
     // TODO: need to test for cross compilation, it may work only on
     // linux, see
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#dynamic-library-paths
@@ -127,7 +136,10 @@ fn main() {
     // variable is not set. There does not seem to be a good way to
     // handle this, see https://github.com/rust-lang/cargo/issues/4895
     // for more details.
-    println!("cargo:rustc-env=LD_LIBRARY_PATH=deps/embree3/lib");
+    println!(
+        "cargo:rustc-env=LD_LIBRARY_PATH={}",
+        embree_lib_path.canonicalize().unwrap().to_str().unwrap()
+    );
 
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
