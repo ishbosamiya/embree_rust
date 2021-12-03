@@ -371,7 +371,7 @@ impl Triangle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GeometrySceneID(u32);
+pub struct GeometrySceneID(pub u32);
 
 // TODO: add support for other geometries
 #[derive(Debug)]
