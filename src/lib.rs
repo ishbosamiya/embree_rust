@@ -120,6 +120,13 @@ impl Embree {
             Scene::Committed(scene) => scene.intersect(ray),
         }
     }
+
+    pub fn get_geometry_id_from_geometry_scene_id(
+        &self,
+        geometry_scene_id: &GeometrySceneID,
+    ) -> Option<&GeometryID> {
+        self.geometry_id_map.get(geometry_scene_id)
+    }
 }
 
 impl Default for Embree {
