@@ -1,11 +1,135 @@
-use std::marker::PhantomData;
+use std::collections::HashMap;
+
+use generational_arena::{Arena, Index};
 
 pub mod sys;
 
 pub const INVALID_GEOMETRY_ID: u32 = sys::RTC_INVALID_GEOMETRY_ID;
 
 #[derive(Debug)]
-pub struct Device {
+pub struct Embree {
+    device: Device,
+    scenes: Arena<Scene>,
+    geometries: Arena<Geometry>,
+    /// Map from GeometrySceneID to GeometryID, useful for when embree
+    /// gives the GeometrySceneID but the user must be provided with
+    /// the GeometryID.
+    geometry_id_map: HashMap<GeometrySceneID, GeometryID>,
+}
+
+impl Embree {
+    pub fn new() -> Self {
+        Self {
+            device: Device::new(),
+            scenes: Arena::new(),
+            geometries: Arena::new(),
+            geometry_id_map: HashMap::new(),
+        }
+    }
+
+    pub fn add_scene(&mut self) -> SceneID {
+        self.add_scene_uncommitted()
+    }
+
+    fn add_scene_uncommitted(&mut self) -> SceneID {
+        SceneID(
+            self.scenes
+                .insert(Scene::Uncommitted(SceneUncommitted::new(&self.device))),
+        )
+    }
+
+    fn add_scene_committed(&mut self, scene: SceneCommitted) -> SceneID {
+        SceneID(self.scenes.insert(Scene::Committed(scene)))
+    }
+
+    // TODO: it might not make sense to have Scene available to the user, need to decide
+    // pub fn get_scene(&self, id: SceneID) -> Option<&Scene> {
+    //     self.scenes.get(id.0)
+    // }
+
+    // pub fn get_scene_mut(&mut self, id: SceneID) -> Option<&mut Scene> {
+    //     self.scenes.get_mut(id.0)
+    // }
+
+    pub fn add_geometry_triangle(&mut self, verts: &[Vert], indices: &[Triangle]) -> GeometryID {
+        GeometryID(
+            self.geometries
+                .insert(Geometry::Triangle(GeometryTriangle::new(
+                    &self.device,
+                    verts,
+                    indices,
+                ))),
+        )
+    }
+
+    pub fn add_geometry_sphere(&mut self, spheres: &[Sphere]) -> GeometryID {
+        GeometryID(
+            self.geometries
+                .insert(Geometry::Sphere(GeometrySphere::new(&self.device, spheres))),
+        )
+    }
+
+    /// commits the scene of the given id and returns the new id of
+    /// the scene
+    #[must_use = "the scene id will change, capture the new one"]
+    pub fn commit_scene(&mut self, id: SceneID) -> SceneID {
+        // TODO: propagate the error to the user
+        let scene = self
+            .scenes
+            .remove(id.0)
+            .expect("scene of given id is not available");
+
+        let scene = match scene {
+            Scene::Uncommitted(scene) => scene.commit(),
+            Scene::Committed(scene) => scene,
+        };
+
+        self.add_scene_committed(scene)
+    }
+
+    pub fn attach_geometry_to_scene(&mut self, geometry_id: GeometryID, scene_id: SceneID) {
+        // TODO: propagate the error to the user
+        let geometry_scene_id = match self
+            .scenes
+            .get_mut(scene_id.0)
+            .expect("scene of given id is not available")
+        {
+            Scene::Committed(_) => unreachable!("scene is committed already"),
+            Scene::Uncommitted(scene) => scene.attach_geometry(
+                self.geometries
+                    .get(geometry_id.0)
+                    .expect("geometry of given id is not available"),
+            ),
+        };
+
+        let old_id = self.geometry_id_map.insert(geometry_scene_id, geometry_id);
+        assert!(
+            old_id.is_none(),
+            "geometry might have been attached already"
+        )
+    }
+
+    pub fn intersect_scene(&self, scene_id: SceneID, ray: Ray) -> RayHit {
+        // TODO: propagate the error to the user
+        match self
+            .scenes
+            .get(scene_id.0)
+            .expect("scene of given id is not available")
+        {
+            Scene::Uncommitted(_) => unreachable!("scene must be committed, currently uncommitted"),
+            Scene::Committed(scene) => scene.intersect(ray),
+        }
+    }
+}
+
+impl Default for Embree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Device {
     device: sys::RTCDevice,
 }
 
@@ -45,24 +169,31 @@ impl Default for Device {
     }
 }
 
-#[derive(Debug)]
-pub struct SceneUncommitted;
-#[derive(Debug)]
-pub struct SceneCommitted;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SceneID(Index);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GeometryID(Index);
 
 #[derive(Debug)]
-pub struct Scene<'a, CommitStatus = SceneUncommitted> {
+pub(crate) struct SceneUncommitted {
     scene: sys::RTCScene,
-    /// Marker to make sure Scene lasts for as long as the [`Device`]
-    /// used to create it
-    _marker: std::marker::PhantomData<&'a Device>,
-    commit_status: std::marker::PhantomData<CommitStatus>,
+}
+#[derive(Debug)]
+pub(crate) struct SceneCommitted {
+    scene: sys::RTCScene,
 }
 
-unsafe impl<CommitStatus> Sync for Scene<'_, CommitStatus> {}
-unsafe impl<CommitStatus> Send for Scene<'_, CommitStatus> {}
+#[derive(Debug)]
+pub(crate) enum Scene {
+    Uncommitted(SceneUncommitted),
+    Committed(SceneCommitted),
+}
 
-impl<CommitStatus> Drop for Scene<'_, CommitStatus> {
+unsafe impl Sync for Scene {}
+unsafe impl Send for Scene {}
+
+impl Drop for SceneUncommitted {
     fn drop(&mut self) {
         unsafe {
             sys::rtcReleaseScene(self.scene);
@@ -71,33 +202,29 @@ impl<CommitStatus> Drop for Scene<'_, CommitStatus> {
     }
 }
 
-impl<'a, CommitStatus> Scene<'a, CommitStatus> {
-    /// # Safety
-    ///
-    /// If not handled correctly, can lead to memory leaks or other
-    /// memory problems. It is always better to use the Rust API
-    /// instead of trying to get access to the FFI parts directly.
-    pub unsafe fn get_scene(&self) -> sys::RTCScene {
-        self.scene
+impl Drop for SceneCommitted {
+    fn drop(&mut self) {
+        unsafe {
+            sys::rtcReleaseScene(self.scene);
+        }
+        self.scene = std::ptr::null_mut();
     }
 }
 
-impl<'a> Scene<'a, SceneUncommitted> {
-    pub fn new(device: &'a Device) -> Self {
+impl SceneUncommitted {
+    pub(crate) fn new(device: &Device) -> Self {
         let scene = unsafe { sys::rtcNewScene(device.get_device()) };
         assert_ne!(scene, std::ptr::null_mut());
-        Self {
-            scene,
-            _marker: PhantomData,
-            commit_status: PhantomData,
-        }
+        Self { scene }
     }
 
-    pub fn attach_geometry(&mut self, geometry: &Geometry) -> GeometryID {
-        GeometryID(unsafe { sys::rtcAttachGeometry(self.get_scene(), geometry.get_geometry()) })
+    pub fn attach_geometry(&mut self, geometry: &Geometry) -> GeometrySceneID {
+        GeometrySceneID(unsafe {
+            sys::rtcAttachGeometry(self.get_scene(), geometry.get_geometry())
+        })
     }
 
-    pub fn commit(self) -> Scene<'a, SceneCommitted> {
+    pub fn commit(self) -> SceneCommitted {
         unsafe {
             sys::rtcCommitScene(self.get_scene());
         }
@@ -108,15 +235,20 @@ impl<'a> Scene<'a, SceneUncommitted> {
             sys::rtcRetainScene(self.get_scene());
         }
 
-        Scene {
-            scene: self.scene,
-            _marker: self._marker,
-            commit_status: PhantomData,
-        }
+        SceneCommitted { scene: self.scene }
+    }
+
+    /// # Safety
+    ///
+    /// If not handled correctly, can lead to memory leaks or other
+    /// memory problems. It is always better to use the Rust API
+    /// instead of trying to get access to the FFI parts directly.
+    pub unsafe fn get_scene(&self) -> sys::RTCScene {
+        self.scene
     }
 }
 
-impl<'a> Scene<'a, SceneCommitted> {
+impl SceneCommitted {
     /// Intersect ray with the scene.
     ///
     /// TODO: add support for the other intersection types along with
@@ -239,16 +371,16 @@ impl Triangle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GeometryID(u32);
+pub struct GeometrySceneID(u32);
 
 // TODO: add support for other geometries
 #[derive(Debug)]
-pub enum Geometry<'a> {
-    Triangle(GeometryTriangle<'a>),
-    Sphere(GeometrySphere<'a>),
+pub(crate) enum Geometry {
+    Triangle(GeometryTriangle),
+    Sphere(GeometrySphere),
 }
 
-impl Geometry<'_> {
+impl Geometry {
     /// # Safety
     ///
     /// If not handled correctly, can lead to memory leaks or other
@@ -263,12 +395,11 @@ impl Geometry<'_> {
 }
 
 #[derive(Debug)]
-pub struct GeometryTriangle<'a> {
+pub(crate) struct GeometryTriangle {
     geometry: sys::RTCGeometry,
-    _marker: std::marker::PhantomData<&'a Device>,
 }
 
-impl Drop for GeometryTriangle<'_> {
+impl Drop for GeometryTriangle {
     fn drop(&mut self) {
         unsafe {
             sys::rtcReleaseGeometry(self.geometry);
@@ -278,8 +409,8 @@ impl Drop for GeometryTriangle<'_> {
     }
 }
 
-impl<'a> GeometryTriangle<'a> {
-    pub fn new(device: &'a Device, verts: &[Vert], indices: &[Triangle]) -> Self {
+impl GeometryTriangle {
+    pub(crate) fn new(device: &Device, verts: &[Vert], indices: &[Triangle]) -> Self {
         let geometry = unsafe {
             sys::rtcNewGeometry(
                 device.get_device(),
@@ -324,10 +455,7 @@ impl<'a> GeometryTriangle<'a> {
             sys::rtcCommitGeometry(geometry);
         }
 
-        Self {
-            geometry,
-            _marker: PhantomData,
-        }
+        Self { geometry }
     }
 
     /// # Safety
@@ -358,12 +486,11 @@ impl Sphere {
 }
 
 #[derive(Debug)]
-pub struct GeometrySphere<'a> {
+pub(crate) struct GeometrySphere {
     geometry: sys::RTCGeometry,
-    _marker: std::marker::PhantomData<&'a Device>,
 }
 
-impl Drop for GeometrySphere<'_> {
+impl Drop for GeometrySphere {
     fn drop(&mut self) {
         unsafe {
             sys::rtcReleaseGeometry(self.geometry);
@@ -373,8 +500,8 @@ impl Drop for GeometrySphere<'_> {
     }
 }
 
-impl<'a> GeometrySphere<'a> {
-    pub fn new(device: &'a Device, spheres: &[Sphere]) -> Self {
+impl GeometrySphere {
+    pub(crate) fn new(device: &Device, spheres: &[Sphere]) -> Self {
         let geometry = unsafe {
             sys::rtcNewGeometry(
                 device.get_device(),
@@ -403,10 +530,7 @@ impl<'a> GeometrySphere<'a> {
             sys::rtcCommitGeometry(geometry);
         }
 
-        Self {
-            geometry,
-            _marker: PhantomData,
-        }
+        Self { geometry }
     }
 
     /// # Safety

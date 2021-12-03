@@ -1,7 +1,4 @@
-use embree_rust::{
-    Device, Geometry, GeometrySphere, GeometryTriangle, Ray, Scene, SceneCommitted, Sphere,
-    Triangle, Vec3, Vert, INVALID_GEOMETRY_ID,
-};
+use embree_rust::{Embree, Ray, SceneID, Sphere, Triangle, Vec3, Vert, INVALID_GEOMETRY_ID};
 use image::Pixel;
 
 fn generate_cube() -> (Vec<Vert>, Vec<Triangle>) {
@@ -35,7 +32,8 @@ fn generate_cube() -> (Vec<Vert>, Vec<Triangle>) {
 }
 
 fn trace_image(
-    scene: &Scene<'_, SceneCommitted>,
+    embree: &Embree,
+    scene_id: SceneID,
     width: usize,
     height: usize,
 ) -> image::DynamicImage {
@@ -57,13 +55,16 @@ fn trace_image(
                 camera_focal_length,
             );
 
-            let ray_hit = scene.intersect(Ray::new(
-                Vec3::new(camera_origin.0, camera_origin.1, camera_origin.2),
-                0.001,
-                1000.0,
-                Vec3::new(ray_direction.0, ray_direction.1, ray_direction.2),
-                0.0,
-            ));
+            let ray_hit = embree.intersect_scene(
+                scene_id,
+                Ray::new(
+                    Vec3::new(camera_origin.0, camera_origin.1, camera_origin.2),
+                    0.001,
+                    1000.0,
+                    Vec3::new(ray_direction.0, ray_direction.1, ray_direction.2),
+                    0.0,
+                ),
+            );
 
             let rgb: [f32; 3] = if ray_hit.hit.geomID != INVALID_GEOMETRY_ID {
                 // [ray_hit.hit.u, ray_hit.hit.v, 0.0]
@@ -83,35 +84,30 @@ fn trace_image(
 }
 
 fn main() {
-    let device = Device::new();
+    let mut embree = Embree::new();
 
-    let mut scene = Scene::new(&device);
+    let scene_id = embree.add_scene();
 
     let (cube_verts, cube_triangles) = generate_cube();
-    let cube_geometry =
-        Geometry::Triangle(GeometryTriangle::new(&device, &cube_verts, &cube_triangles));
+    let cube_id = embree.add_geometry_triangle(&cube_verts, &cube_triangles);
+    let sphere_id = embree.add_geometry_sphere(&[
+        Sphere::new(Vec3::new(2.1, 2.1, 0.0), 0.7),
+        Sphere::new(Vec3::new(2.1, -2.1, 0.0), 0.7),
+        Sphere::new(Vec3::new(-2.1, 2.1, 0.0), 0.7),
+        Sphere::new(Vec3::new(-2.1, -2.1, 0.0), 0.7),
+    ]);
 
-    let sphere_geometry = Geometry::Sphere(GeometrySphere::new(
-        &device,
-        &[
-            Sphere::new(Vec3::new(2.1, 2.1, 0.0), 0.7),
-            Sphere::new(Vec3::new(2.1, -2.1, 0.0), 0.7),
-            Sphere::new(Vec3::new(-2.1, 2.1, 0.0), 0.7),
-            Sphere::new(Vec3::new(-2.1, -2.1, 0.0), 0.7),
-        ],
-    ));
+    embree.attach_geometry_to_scene(cube_id, scene_id);
+    embree.attach_geometry_to_scene(sphere_id, scene_id);
 
-    scene.attach_geometry(&cube_geometry);
-    scene.attach_geometry(&sphere_geometry);
-
-    let scene = scene.commit();
+    let scene_id = embree.commit_scene(scene_id);
 
     let viuer_config = viuer::Config {
         absolute_offset: false,
         ..Default::default()
     };
 
-    let image = trace_image(&scene, 100, 100);
+    let image = trace_image(&embree, scene_id, 100, 100);
 
     viuer::print(&image, &viuer_config).unwrap();
 }
