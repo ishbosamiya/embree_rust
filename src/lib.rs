@@ -380,6 +380,9 @@ pub(crate) enum Geometry {
     Sphere(GeometrySphere),
 }
 
+unsafe impl Sync for Geometry {}
+unsafe impl Send for Geometry {}
+
 impl Geometry {
     /// # Safety
     ///
@@ -398,6 +401,9 @@ impl Geometry {
 pub(crate) struct GeometryTriangle {
     geometry: sys::RTCGeometry,
 }
+
+unsafe impl Sync for GeometryTriangle {}
+unsafe impl Send for GeometryTriangle {}
 
 impl Drop for GeometryTriangle {
     fn drop(&mut self) {
@@ -489,6 +495,9 @@ impl Sphere {
 pub(crate) struct GeometrySphere {
     geometry: sys::RTCGeometry,
 }
+
+unsafe impl Sync for GeometrySphere {}
+unsafe impl Send for GeometrySphere {}
 
 impl Drop for GeometrySphere {
     fn drop(&mut self) {
