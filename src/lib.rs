@@ -7,7 +7,6 @@ pub const INVALID_GEOMETRY_ID: u32 = sys::RTC_INVALID_GEOMETRY_ID;
 #[derive(Debug)]
 pub struct Device {
     device: sys::RTCDevice,
-    _marker: std::marker::PhantomData<sys::RTCDevice>,
 }
 
 impl Drop for Device {
@@ -24,11 +23,10 @@ unsafe impl Send for Device {}
 
 impl Device {
     pub fn new() -> Self {
-        Self {
-            // TODO: add device config support
-            device: unsafe { sys::rtcNewDevice(std::ptr::null()) },
-            _marker: PhantomData,
-        }
+        // TODO: add device config support
+        let device = unsafe { sys::rtcNewDevice(std::ptr::null()) };
+        assert_ne!(device, std::ptr::null_mut());
+        Self { device }
     }
 
     /// # Safety
@@ -86,8 +84,10 @@ impl<'a, CommitStatus> Scene<'a, CommitStatus> {
 
 impl<'a> Scene<'a, SceneUncommitted> {
     pub fn new(device: &'a Device) -> Self {
+        let scene = unsafe { sys::rtcNewScene(device.get_device()) };
+        assert_ne!(scene, std::ptr::null_mut());
         Self {
-            scene: unsafe { sys::rtcNewScene(device.get_device()) },
+            scene,
             _marker: PhantomData,
             commit_status: PhantomData,
         }
