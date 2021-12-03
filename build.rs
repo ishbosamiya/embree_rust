@@ -14,11 +14,7 @@ fn pre_compiled_lib_exists() -> bool {
 /// `source_dir/build`
 ///
 /// [`to_dir`] is the path to which embree is installed
-fn compile_embree(
-    source_dir: impl AsRef<Path>,
-    build_dir: impl AsRef<Path>,
-    to_dir: impl AsRef<Path>,
-) {
+fn compile_embree(source_dir: impl AsRef<Path>, build_dir: impl AsRef<Path>) {
     std::process::Command::new("cmake")
         .current_dir(&build_dir)
         .arg("CMAKE_BUILD_TYPE=Release")
@@ -28,7 +24,6 @@ fn compile_embree(
         .arg(source_dir.as_ref())
         .output()
         .expect("cmake may not be available on system");
-
     // TODO: user customizable number of processes, embree is
     // expensive to compile, completely utilizes the CPU, RAM and SWAP
     // thus bringing the system to complete halt (at least on a XPS 15
@@ -39,7 +34,9 @@ fn compile_embree(
         .arg("6")
         .output()
         .expect("make may not be available on system");
+}
 
+fn install_embree(build_dir: impl AsRef<Path>, to_dir: impl AsRef<Path>) {
     std::process::Command::new("cmake")
         .current_dir(&build_dir)
         .arg("--install")
@@ -50,7 +47,7 @@ fn compile_embree(
         .expect("failed to install the library");
 }
 
-fn generate_embree_lib() {
+fn compile_and_generate_embree_lib() {
     let root_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
         .canonicalize()
         .unwrap();
@@ -73,6 +70,8 @@ fn generate_embree_lib() {
         embree_build_dir.canonicalize().unwrap()
     };
 
+    compile_embree(&embree_source_dir, &embree_build_dir);
+
     let embree_deps_dir = {
         let mut embree_deps_dir = root_dir;
         embree_deps_dir.push("deps/embree3");
@@ -85,9 +84,33 @@ fn generate_embree_lib() {
         embree_deps_dir.canonicalize().unwrap()
     };
 
-    compile_embree(&embree_source_dir, &embree_build_dir, &embree_deps_dir);
+    install_embree(&embree_build_dir, &embree_deps_dir);
 
     std::fs::remove_dir_all(embree_build_dir).unwrap();
+}
+
+fn use_precompiled_lib() {
+    let root_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .canonicalize()
+        .unwrap();
+
+    let deps_dir = {
+        let mut deps_dir = root_dir;
+        deps_dir.push("deps/");
+
+        if !deps_dir.exists() {
+            std::fs::create_dir_all(&deps_dir).expect("could not create deps dir for Embree");
+        }
+
+        deps_dir.canonicalize().unwrap()
+    };
+
+    std::process::Command::new("tar")
+        .current_dir(deps_dir)
+        .arg("-xf")
+        .arg("embree-3.13.2.x86_64.linux.tar.gz")
+        .output()
+        .expect("maybe tar is not available to unzip precompiled lib");
 }
 
 fn main() {
@@ -99,8 +122,15 @@ fn main() {
 
     if pre_compiled_lib_exists() {
         println!("pre compiled embree already exists at deps/embree3");
+    } else if env::var("EMBREE_RUST_FORCE_COMPILE").is_ok() {
+        compile_and_generate_embree_lib();
     } else {
-        generate_embree_lib();
+        // use precompiled library if available
+        if cfg!(target_os = "linux") {
+            use_precompiled_lib();
+        } else {
+            compile_and_generate_embree_lib();
+        }
     }
 
     println!("cargo:rustc-link-lib=dylib=stdc++");
